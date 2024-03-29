@@ -217,12 +217,15 @@ func (e *ECS) launchTask(ctx context.Context, subdomain string, taskdef string, 
 		Cluster:                  aws.String(cfg.ECS.Cluster),
 		TaskDefinition:           aws.String(taskdef),
 		NetworkConfiguration:     cfg.ECS.networkConfiguration,
-		LaunchType:               types.LaunchType(*cfg.ECS.LaunchType),
 		Overrides:                ov,
 		Count:                    aws.Int32(1),
 		Tags:                     tags,
 		EnableExecuteCommand:     aws.ToBool(cfg.ECS.EnableExecuteCommand),
 	}
+	if lt := cfg.ECS.LaunchType; lt != nil {
+		runtaskInput.LaunchType = types.LaunchType(*lt)
+	}
+
 	slog.Debug(f("RunTaskInput: %v", runtaskInput))
 	out, err := e.svc.RunTask(ctx, runtaskInput)
 	if err != nil {
