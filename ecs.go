@@ -161,21 +161,15 @@ type ECS struct {
 	svc            *ecs.Client
 	logsSvc        *cwlogs.Client
 	cwSvc          *cw.Client
-	tracer         *tracer.Tracer
 	proxyControlCh chan *proxyControl
 }
 
 func NewECSTaskRunner(cfg *Config) TaskRunner {
-	tr, err := tracer.NewWithConfig(*cfg.awscfg)
-	if err != nil {
-		panic(err)
-	}
 	e := &ECS{
 		cfg:     cfg,
 		svc:     ecs.NewFromConfig(*cfg.awscfg),
 		logsSvc: cwlogs.NewFromConfig(*cfg.awscfg),
 		cwSvc:   cw.NewFromConfig(*cfg.awscfg),
-		tracer:  tr,
 	}
 	return e
 }
@@ -266,13 +260,17 @@ func (e *ECS) Launch(ctx context.Context, subdomain string, option TaskParameter
 }
 
 func (e *ECS) Trace(ctx context.Context, id string) (string, error) {
+	tr, err := tracer.NewWithConfig(*e.cfg.awscfg)
+	if err != nil {
+		return "", err
+	}
 	tracerOpt := &tracer.RunOption{
 		Stdout:   true,
 		Duration: 5 * time.Minute,
 	}
 	buf := &strings.Builder{}
-	e.tracer.SetOutput(buf)
-	if err := e.tracer.Run(ctx, e.cfg.ECS.Cluster, id, tracerOpt); err != nil {
+	tr.SetOutput(buf)
+	if err := tr.Run(ctx, e.cfg.ECS.Cluster, id, tracerOpt); err != nil {
 		return "", err
 	}
 	return buf.String(), nil
