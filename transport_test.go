@@ -3,6 +3,7 @@ package mirageecs_test
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,6 +20,7 @@ func TestRoundTrip(t *testing.T) {
 		timeout           time.Duration
 		wantStatus        int
 		wantBody          string
+		bodyContains      string
 		requireAuthCookie bool
 		sendCookie        bool
 	}{
@@ -30,11 +32,11 @@ func TestRoundTrip(t *testing.T) {
 			wantBody:    "OK",
 		},
 		{
-			name:        "Timeout failure pattern",
-			serverDelay: 150 * time.Millisecond,
-			timeout:     100 * time.Millisecond,
-			wantStatus:  http.StatusGatewayTimeout,
-			wantBody:    "test-subdomain upstream timeout: ",
+			name:         "Timeout failure pattern",
+			serverDelay:  150 * time.Millisecond,
+			timeout:      100 * time.Millisecond,
+			wantStatus:   http.StatusGatewayTimeout,
+			bodyContains: "test-subdomain upstream timeout: ",
 		},
 		{
 			name:              "Success pattern with auth cookie",
@@ -52,6 +54,12 @@ func TestRoundTrip(t *testing.T) {
 			requireAuthCookie: true,
 			sendCookie:        false,
 		},
+		{
+			name:       "Large content",
+			timeout:    100 * time.Second,
+			wantStatus: http.StatusOK,
+			wantBody:   strings.Repeat("a", 1024*100),
+		},
 	}
 
 	for _, tt := range tests {
@@ -59,15 +67,15 @@ func TestRoundTrip(t *testing.T) {
 			// Setup mock server
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				time.Sleep(tt.serverDelay)
-				w.Write([]byte("OK"))
+				buf := strings.NewReader(tt.wantBody)
+				io.Copy(w, buf)
 			}))
 			defer server.Close()
 
 			// Setup transport
 			tr := &mirageecs.Transport{
 				Counter:   mirageecs.NewAccessCounter(time.Second),
-				Transport: http.DefaultTransport,
-				Timeout:   tt.timeout,
+				Transport: mirageecs.NewHTTPTransport(tt.timeout),
 				Subdomain: "test-subdomain",
 			}
 			if tt.requireAuthCookie {
@@ -93,14 +101,26 @@ func TestRoundTrip(t *testing.T) {
 			}
 			defer resp.Body.Close()
 
-			body, _ := io.ReadAll(resp.Body)
+			buf := new(strings.Builder)
+			if n, err := io.Copy(buf, resp.Body); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			} else {
+				log.Printf("read body %d bytes", n)
+			}
+			body := buf.String()
 
 			if resp.StatusCode != tt.wantStatus {
 				t.Errorf("wanted status %v, got %v", tt.wantStatus, resp.StatusCode)
 			}
 
-			if !strings.Contains(string(body), tt.wantBody) {
-				t.Errorf("wanted body to contain %v, got %v", tt.wantBody, string(body))
+			if tt.bodyContains != "" {
+				if !strings.Contains(string(body), tt.bodyContains) {
+					t.Errorf("wanted body to contain %v, got %v", tt.bodyContains, string(body))
+				}
+			} else {
+				if len(tt.wantBody) != len(string(body)) {
+					t.Errorf("wanted body length %v, got %v", len(tt.wantBody), len(string(body)))
+				}
 			}
 		})
 	}

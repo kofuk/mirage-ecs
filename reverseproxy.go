@@ -1,7 +1,6 @@
 package mirageecs
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -226,9 +225,8 @@ func (r *ReverseProxy) AddSubdomain(subdomain string, ipaddress string, targetPo
 		}
 		handler := rproxy.NewSingleHostReverseProxy(destUrl)
 		tp := &Transport{
-			Transport: http.DefaultTransport,
+			Transport: newHTTPTransport(r.cfg.Network.ProxyTimeout),
 			Counter:   counter,
-			Timeout:   r.cfg.Network.ProxyTimeout,
 			Subdomain: subdomain,
 		}
 		if v.RequireAuthCookie {
@@ -288,10 +286,20 @@ func (r *ReverseProxy) CollectAccessCounts() map[string]accessCount {
 	return counts
 }
 
+func newHTTPTransport(t time.Duration) http.RoundTripper {
+	tp := http.DefaultTransport.(*http.Transport).Clone()
+	tp.DialContext = (&net.Dialer{
+		Timeout:   t,
+		KeepAlive: 30 * time.Second,
+	}).DialContext
+	tp.TLSHandshakeTimeout = t
+	tp.ResponseHeaderTimeout = t
+	return tp
+}
+
 type Transport struct {
 	Counter                *AccessCounter
 	Transport              http.RoundTripper
-	Timeout                time.Duration
 	Subdomain              string
 	AuthCookieValidateFunc func(*http.Cookie) error
 }
@@ -314,28 +322,21 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return newForbiddenResponse(), nil
 		}
 	}
-	if t.Timeout == 0 {
-		return t.Transport.RoundTrip(req)
+	resp, err := t.Transport.RoundTrip(req)
+	if err != nil {
+		slog.Warn(f("subdomain %s %s roundtrip failed: %s", t.Subdomain, req.URL, err))
+		if strings.Contains(err.Error(), "timeout") {
+			return newTimeoutResponse(t.Subdomain, req.URL.String(), err), nil
+		}
+		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(req.Context(), t.Timeout)
-	defer cancel()
-	resp, err := t.Transport.RoundTrip(req.WithContext(ctx))
-	if err == nil {
-		return resp, nil
-	}
-	slog.Warn(f("subdomain %s %s roundtrip failed: %s", t.Subdomain, req.URL, err))
-
-	// timeout
-	if ctx.Err() == context.DeadlineExceeded {
-		return newTimeoutResponse(t.Subdomain, req.URL.String()), nil
-	}
-	return resp, err
+	return resp, nil
 }
 
-func newTimeoutResponse(subdomain string, u string) *http.Response {
+func newTimeoutResponse(subdomain string, u string, err error) *http.Response {
 	resp := new(http.Response)
 	resp.StatusCode = http.StatusGatewayTimeout
-	msg := fmt.Sprintf("%s upstream timeout: %s", subdomain, u)
+	msg := fmt.Sprintf("%s upstream timeout: %s %s", subdomain, u, err.Error())
 	resp.Body = io.NopCloser(strings.NewReader(msg))
 	return resp
 }
