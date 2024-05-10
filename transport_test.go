@@ -3,7 +3,6 @@ package mirageecs_test
 import (
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -105,7 +104,7 @@ func TestRoundTrip(t *testing.T) {
 			if n, err := io.Copy(buf, resp.Body); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			} else {
-				log.Printf("read body %d bytes", n)
+				t.Logf("read body %d bytes", n)
 			}
 			body := buf.String()
 
