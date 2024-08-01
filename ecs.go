@@ -212,12 +212,16 @@ func (e *ECS) launchTask(ctx context.Context, subdomain string, taskdef string, 
 	slog.Debug(f("Task Override: %v", ov))
 
 	tags := option.ToECSTags(subdomain, cfg.Parameter)
+	var launchType types.LaunchType
+	if cfg.ECS.LaunchType != nil {
+		launchType = types.LaunchType(*cfg.ECS.LaunchType)
+	}
 	runtaskInput := &ecs.RunTaskInput{
 		CapacityProviderStrategy: cfg.ECS.capacityProviderStrategy,
 		Cluster:                  aws.String(cfg.ECS.Cluster),
 		TaskDefinition:           aws.String(taskdef),
 		NetworkConfiguration:     cfg.ECS.networkConfiguration,
-		LaunchType:               types.LaunchType(*cfg.ECS.LaunchType),
+		LaunchType:               launchType,
 		Overrides:                ov,
 		Count:                    aws.Int32(1),
 		Tags:                     tags,
