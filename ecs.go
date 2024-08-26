@@ -227,8 +227,16 @@ func (e *ECS) launchTask(ctx context.Context, subdomain string, taskdef string, 
 	}
 	if len(out.Failures) > 0 {
 		f := out.Failures[0]
+		reason := "(unknown)"
+		if f.Reason != nil {
+			reason = *f.Reason
+		}
+		arn := "(unknown)"
+		if f.Arn != nil {
+			arn = *f.Arn
+		}
 		return fmt.Errorf(
-			"run task failed. reason:%s arn:%s", *f.Reason, *f.Arn,
+			"run task failed. reason:%s arn:%s", reason, arn,
 		)
 	}
 	task := out.Tasks[0]
